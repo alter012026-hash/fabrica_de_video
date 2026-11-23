@@ -1,6 +1,6 @@
 # Estúdio Vídeo — arquitetura modular
 
-Aplicativo local para criar vídeos no navegador. O roteiro usa a API GroqCloud quando o usuário fornece sua própria chave. A narração em português é sintetizada pelo Piper no próprio computador; imagens, áudio e vídeo permanecem localmente.
+Aplicativo local para criar vídeos no navegador. O roteiro usa a API GroqCloud quando o usuário fornece sua própria chave. A narração em português é sintetizada pelo Piper no computador que executa o servidor; imagens, áudio e vídeo são montados no navegador.
 
 ## Executar no Windows
 
@@ -9,6 +9,16 @@ Aplicativo local para criar vídeos no navegador. O roteiro usa a API GroqCloud 
 3. Execute `configurar_windows.bat` uma vez. O instalador cria o ambiente Python e baixa o modelo Piper PT-BR (aprox. 63 MB).
 4. Execute `iniciar_windows.bat` para abrir o estúdio no navegador.
 5. Cole uma chave GroqCloud em **Projeto e roteiro**. A chave e o modelo selecionado ficam salvos no armazenamento local do navegador para você não precisar informá-los novamente. A chave não é incluída no arquivo JSON do projeto; ela é enviada ao servidor local somente para as solicitações à Groq. Apagar os dados do navegador remove a chave salva.
+
+## Acessar pelo iPhone na mesma rede Wi-Fi
+
+1. Deixe o computador e o iPhone conectados à mesma rede Wi-Fi. Evite rede de convidados, que pode bloquear a comunicação entre aparelhos.
+2. Inicie o estúdio com `iniciar_windows.bat` no computador. Na primeira execução, o Windows pode perguntar se o Python pode aceitar conexões: permita somente em **redes privadas**.
+3. Mantenha a janela do servidor aberta. Ela mostra o endereço IPv4 para abrir no iPhone, o usuário `estudio` e a senha de acesso. A senha é gerada e guardada no arquivo local `.lan_access_password`; ela não é enviada ao GitHub.
+4. No iPhone, abra o endereço mostrado no Safari e entre com o usuário e senha do terminal. Para acesso rápido, use **Compartilhar → Adicionar à Tela de Início**.
+5. Configure a chave Groq uma vez nesse endereço do Safari. Ela fica salva nesse navegador enquanto os dados do site não forem apagados. Se o IP do computador mudar, o endereço muda e a chave poderá precisar ser informada novamente.
+
+O computador precisa permanecer ligado e conectado ao Wi-Fi para gerar roteiro e narração. O servidor aceita apenas conexões locais e de endereços privados, além de exigir senha. Não configure encaminhamento de porta no roteador nem use o servidor em uma rede Wi-Fi pública. O acesso local usa HTTP; utilize somente uma rede privada de confiança.
 
 O uso da API Groq depende da conta, dos modelos disponíveis e das cotas vigentes. O Piper e a síntese rodam localmente; o custo computacional é do próprio computador. Confira a licença da voz/modelo antes de uso comercial.
 
@@ -41,11 +51,15 @@ src/exporter.js            gravação WebM e mixagem de áudio
 server.py                  servidor local, proxy Groq e Piper
 ```
 
-O servidor escuta somente em `127.0.0.1`; não deve ser exposto publicamente sem autenticação e revisão de segurança. A chave Groq é guardada no armazenamento local do navegador e enviada ao servidor local apenas durante chamadas à API; ela não é gravada em arquivo nem incluída no projeto exportado. Os modelos são consultados pelo endpoint oficial `/openai/v1/models` e os IDs antigos são filtrados pela lista ativa da conta.
+O servidor escuta na rede privada para permitir o acesso pelo celular, exige autenticação HTTP e rejeita endereços públicos. A chave Groq é guardada no armazenamento local do navegador e enviada ao servidor local apenas durante chamadas à API; ela não é gravada em arquivo nem incluída no projeto exportado. Os modelos são consultados pelo endpoint oficial `/openai/v1/models` e os IDs antigos são filtrados pela lista ativa da conta.
 
 ## Atualização 3.4
 
 A interface foi ajustada para celulares, com etapas reorganizadas em grade, controles maiores para toque e campos mais confortáveis. A chave Groq e o modelo escolhido agora são lembrados no navegador.
+
+## Atualização 3.5
+
+O servidor pode ser acessado pelo iPhone na mesma rede Wi-Fi do computador. Ele cria uma senha local persistente, mostra o endereço IPv4 no terminal e aceita apenas conexões de rede privada ou do próprio computador.
 
 ## Atualização 2.5
 

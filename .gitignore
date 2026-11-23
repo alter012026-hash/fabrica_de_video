@@ -3,3 +3,4 @@ __pycache__/
 models/*.onnx
 models/*.onnx.json
 output/*
+.lan_access_password

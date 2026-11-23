@@ -1,7 +1,12 @@
 """Servidor local e adaptadores de IA do Estúdio Vídeo."""
 from __future__ import annotations
 import json
+import base64
+import hmac
+import ipaddress
 import mimetypes
+import secrets
+import socket
 import tempfile
 import threading
 import wave
@@ -13,9 +18,30 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 MODEL_DIR = ROOT / "models"
+ACCESS_PASSWORD_FILE = ROOT / ".lan_access_password"
+ACCESS_USERNAME = "estudio"
 ALLOWED_VOICES = {"pt_BR-faber-medium"}
 FALLBACK_TEXT_MODELS = ["openai/gpt-oss-20b", "openai/gpt-oss-120b", "qwen/qwen3.8-27b"]
 VOICE_LOCK = threading.Lock()
+
+
+def load_access_password():
+    """Create and persist the password used to access the app on the LAN."""
+    try:
+        password = ACCESS_PASSWORD_FILE.read_text(encoding="utf-8").strip()
+        if len(password) >= 16:
+            return password
+    except OSError:
+        pass
+    password = secrets.token_urlsafe(18)
+    try:
+        ACCESS_PASSWORD_FILE.write_text(password + "\n", encoding="utf-8")
+    except OSError as exc:
+        raise RuntimeError("Não foi possível guardar a senha. Extraia o projeto em uma pasta com permissão de gravação.") from exc
+    return password
+
+
+ACCESS_PASSWORD = load_access_password()
 
 
 def groq_client(api_key):
@@ -44,12 +70,27 @@ def groq_error_message(error, model=None):
 
 
 class AppHandler(BaseHTTPRequestHandler):
-    server_version = "EstudioVideo/3.2"
+    server_version = "EstudioVideo/3.5"
 
     def log_message(self, fmt, *args):
         print(f"[{self.log_date_time_string()}] {fmt % args}")
 
+    def authenticate(self):
+        supplied = self.headers.get("Authorization", "")
+        expected = "Basic " + base64.b64encode(
+            f"{ACCESS_USERNAME}:{ACCESS_PASSWORD}".encode("utf-8")
+        ).decode("ascii")
+        if hmac.compare_digest(supplied, expected):
+            return True
+        self.send_response(401)
+        self.send_header("WWW-Authenticate", 'Basic realm="Estúdio Vídeo na rede local", charset="UTF-8"')
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+        return False
+
     def do_GET(self):
+        if not self.authenticate(): return
         if self.path == "/api/health":
             model = MODEL_DIR / "pt_BR-faber-medium.onnx"
             self.send_json(200, {"ok": True, "voiceReady": model.exists() and model.with_suffix(model.suffix + ".json").exists()})
@@ -66,6 +107,7 @@ class AppHandler(BaseHTTPRequestHandler):
         self.send_response(200); self.send_header("Content-Type", mime); self.send_header("Content-Length", str(len(body))); self.send_header("X-Content-Type-Options", "nosniff"); self.end_headers(); self.wfile.write(body)
 
     def do_POST(self):
+        if not self.authenticate(): return
         if self.path == "/api/finalize": self.finalize_video(); return
         routes = {"/api/script", "/api/narrate", "/api/models", "/api/image-prompts", "/api/eleven/voices", "/api/eleven/tts"}
         if self.path not in routes:
@@ -246,8 +288,51 @@ class AppHandler(BaseHTTPRequestHandler):
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status); self.send_header("Content-Type", "application/json; charset=utf-8"); self.send_header("Content-Length", str(len(body))); self.send_header("Cache-Control", "no-store"); self.end_headers(); self.wfile.write(body)
 
+
+class PrivateNetworkHTTPServer(ThreadingHTTPServer):
+    """Accept loopback and private-network clients, never public Internet IPs."""
+    allow_reuse_address = True
+
+    def verify_request(self, request, client_address):
+        try:
+            address = ipaddress.ip_address(client_address[0])
+            return address.is_private or address.is_loopback
+        except ValueError:
+            return False
+
+
+def local_network_ip():
+    """Return the IPv4 address Windows uses to reach the local network."""
+    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        probe.connect(("192.0.2.1", 80))
+        address = probe.getsockname()[0]
+        if not address.startswith("127."):
+            return address
+    except OSError:
+        pass
+    finally:
+        probe.close()
+    try:
+        for item in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            address = item[4][0]
+            if not address.startswith("127."):
+                return address
+    except OSError:
+        pass
+    return None
+
 if __name__ == "__main__":
-    host, port = "127.0.0.1", 8787
-    print("Estúdio Vídeo em http://127.0.0.1:8787")
-    print("Servidor acessível somente neste computador. Feche esta janela para parar.")
-    ThreadingHTTPServer((host, port), AppHandler).serve_forever()
+    host, port = "0.0.0.0", 8787
+    lan_ip = local_network_ip()
+    print("Estúdio Vídeo iniciado com acesso protegido à rede privada.")
+    print("No computador: http://127.0.0.1:8787")
+    if lan_ip:
+        print(f"No iPhone (mesma rede Wi-Fi): http://{lan_ip}:{port}")
+    else:
+        print("Não consegui detectar o IP da rede. Consulte o IPv4 com ipconfig.")
+    print(f"Usuário: {ACCESS_USERNAME}")
+    print(f"Senha de acesso: {ACCESS_PASSWORD}")
+    print("No iPhone, mantenha o computador ligado e conectado ao mesmo Wi-Fi.")
+    print("Feche esta janela para parar o servidor.")
+    PrivateNetworkHTTPServer((host, port), AppHandler).serve_forever()
